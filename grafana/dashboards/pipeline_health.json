@@ -1,0 +1,146 @@
+{
+  "title": "Banking Data Platform — Pipeline Health",
+  "uid":   "banking-pipeline-health",
+  "tags":  ["banking", "data-engineering", "monitoring"],
+  "time":  {"from": "now-24h", "to": "now"},
+  "refresh": "1m",
+  "panels": [
+    {
+      "id":    1,
+      "title": "Pipeline Success Rate (24h)",
+      "type":  "stat",
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+      "targets": [{
+        "datasource": "CloudWatch",
+        "dimensions": {"Environment": ["prod"]},
+        "expression": "SUM(PipelineSuccess) / (SUM(PipelineSuccess) + SUM(PipelineFailure)) * 100",
+        "metricName": "PipelineSuccess",
+        "namespace":  "Banking/DataPipeline",
+        "period":     "86400",
+        "statistics": ["Sum"]
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": {
+            "steps": [
+              {"color": "red",    "value": 0},
+              {"color": "yellow", "value": 95},
+              {"color": "green",  "value": 99}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id":    2,
+      "title": "Bronze Ingestion — Rows Processed",
+      "type":  "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 6, "y": 0},
+      "targets": [
+        {
+          "datasource": "CloudWatch",
+          "metricName": "BronzeRowsIngested",
+          "namespace":  "Banking/DataPipeline",
+          "dimensions": {"Layer": ["bronze"], "Table": ["transactions"]},
+          "period":     "3600",
+          "statistics": ["Sum"],
+          "label":      "Transactions"
+        },
+        {
+          "datasource": "CloudWatch",
+          "metricName": "BronzeRowsIngested",
+          "namespace":  "Banking/DataPipeline",
+          "dimensions": {"Layer": ["bronze"], "Table": ["customers"]},
+          "period":     "3600",
+          "statistics": ["Sum"],
+          "label":      "Customers"
+        }
+      ]
+    },
+    {
+      "id":    3,
+      "title": "Kafka Consumer Lag",
+      "type":  "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "targets": [{
+        "datasource": "CloudWatch",
+        "metricName": "EstimatedTimeLag",
+        "namespace":  "AWS/Kafka",
+        "dimensions": {
+          "ClusterName": ["banking-kafka-prod"],
+          "ConsumerGroup": ["banking-bronze-writer"],
+          "Topic": ["banking.transactions"]
+        },
+        "period":     "60",
+        "statistics": ["Maximum"],
+        "label":      "Consumer Lag (ms)"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "thresholds": {
+            "steps": [
+              {"color": "green",  "value": 0},
+              {"color": "yellow", "value": 30000},
+              {"color": "red",    "value": 120000}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id":    4,
+      "title": "AML High-Risk Customers Detected",
+      "type":  "stat",
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 16},
+      "targets": [{
+        "datasource": "CloudWatch",
+        "metricName": "AMLHighRiskCount",
+        "namespace":  "Banking/AML",
+        "dimensions": {"Environment": ["prod"]},
+        "period":     "86400",
+        "statistics": ["Maximum"]
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "steps": [
+              {"color": "green",  "value": 0},
+              {"color": "yellow", "value": 100},
+              {"color": "red",    "value": 500}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id":    5,
+      "title": "dbt Model Run Duration",
+      "type":  "bargauge",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "targets": [{
+        "datasource": "CloudWatch",
+        "metricName": "dbtModelDuration",
+        "namespace":  "Banking/DataPipeline",
+        "dimensions": {"Environment": ["prod"]},
+        "period":     "86400",
+        "statistics": ["Maximum"]
+      }],
+      "fieldConfig": {"defaults": {"unit": "s"}}
+    },
+    {
+      "id":    6,
+      "title": "Data Quality Check Results",
+      "type":  "table",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 24},
+      "targets": [{
+        "datasource": "CloudWatch Logs",
+        "logGroupName": "/aws/glue/banking-data-platform",
+        "queryString":  "fields @timestamp, table, check, status | filter ispresent(check) | sort @timestamp desc | limit 50"
+      }]
+    }
+  ]
+}

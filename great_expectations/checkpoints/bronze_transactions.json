@@ -1,0 +1,45 @@
+{
+  "name": "bronze_transactions",
+  "config_version": 1.0,
+  "run_name_template": "%Y-%m-%d-%H:%M:%S-bronze-transactions",
+  "action_list": [
+    {
+      "name": "store_validation_result",
+      "action": { "class_name": "StoreValidationResultAction" }
+    },
+    {
+      "name": "store_evaluation_params",
+      "action": { "class_name": "StoreEvaluationParametersAction" }
+    },
+    {
+      "name": "update_data_docs",
+      "action": { "class_name": "UpdateDataDocsAction" }
+    },
+    {
+      "name": "slack_on_failure",
+      "action": {
+        "class_name": "SlackNotificationAction",
+        "slack_webhook": "${SLACK_WEBHOOK_URL}",
+        "notify_on": "failure",
+        "renderer": {
+          "module_name": "great_expectations.render.renderer.slack_renderer",
+          "class_name": "SlackRenderer"
+        }
+      }
+    }
+  ],
+  "validations": [
+    {
+      "batch_request": {
+        "datasource_name": "banking_delta_lake",
+        "data_connector_name": "default_inferred_data_connector_name",
+        "data_asset_name": "bronze.transactions",
+        "batch_spec_passthrough": {
+          "reader_method": "delta",
+          "reader_options": {}
+        }
+      },
+      "expectation_suite_name": "bronze.transactions.critical"
+    }
+  ]
+}

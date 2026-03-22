@@ -1,0 +1,192 @@
+version: 2
+
+# =============================================================================
+# Sources
+# =============================================================================
+sources:
+  - name: bronze
+    schema: bronze
+    description: "Raw Delta Lake tables — immutable, audit-complete"
+    freshness:
+      warn_after:  {count: 1, period: day}
+      error_after: {count: 2, period: day}
+    loaded_at_field: _ingested_at
+    tables:
+      - name: transactions
+        description: "Raw banking transactions from Core Banking System"
+        columns:
+          - name: transaction_id
+            tests: [not_null, unique]
+          - name: account_id
+            tests: [not_null]
+          - name: amount
+            tests:
+              - not_null
+              - dbt_utils.accepted_range:
+                  min_value: 0
+                  max_value: 10000000
+          - name: currency
+            tests:
+              - not_null
+              - accepted_values:
+                  values: [USD, EUR, AED, GBP, SAR, JPY, CHF]
+          - name: status
+            tests:
+              - not_null
+              - accepted_values:
+                  values: [PENDING, COMPLETED, FAILED, REVERSED, FLAGGED]
+
+      - name: customers
+        description: "Raw customer master data from KYC portal"
+        columns:
+          - name: customer_id
+            tests: [not_null, unique]
+          - name: kyc_status
+            tests:
+              - not_null
+              - accepted_values:
+                  values: [PENDING, APPROVED, SUSPENDED, CLOSED]
+          - name: risk_rating
+            tests:
+              - not_null
+              - accepted_values:
+                  values: [LOW, MEDIUM, HIGH]
+
+      - name: accounts
+        description: "Raw account data from Core Banking System"
+        columns:
+          - name: account_id
+            tests: [not_null, unique]
+          - name: customer_id
+            tests: [not_null]
+          - name: current_balance
+            tests:
+              - not_null
+              - dbt_utils.accepted_range:
+                  min_value: -100000   # Overdraft accounts allowed
+
+# =============================================================================
+# Silver Models
+# =============================================================================
+models:
+  - name: fct_transactions
+    description: >
+      Cleansed, deduplicated transaction fact table.
+      Enriched with merchant category, FX-converted amounts (AED base),
+      and fraud/AML flags.
+    config:
+      materialized: incremental
+      unique_key: transaction_id
+    columns:
+      - name: transaction_id
+        description: "Unique transaction identifier"
+        tests: [not_null, unique]
+      - name: account_id
+        tests: [not_null]
+      - name: customer_id
+        tests: [not_null]
+      - name: amount_aed
+        description: "Amount converted to AED base currency"
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+      - name: transaction_type
+        tests:
+          - accepted_values:
+              values: [CREDIT, DEBIT, TRANSFER, WITHDRAWAL, DEPOSIT, INTERNATIONAL, FEE, REVERSAL]
+      - name: status
+        tests:
+          - accepted_values:
+              values: [PENDING, COMPLETED, FAILED, REVERSED, FLAGGED]
+
+  - name: dim_customers_scd2
+    description: >
+      SCD Type 2 customer dimension.
+      Every KYC change produces a new record.
+      Use is_current = true to get the latest state.
+    columns:
+      - name: customer_id
+        tests: [not_null]
+      - name: kyc_status
+        tests:
+          - not_null
+          - accepted_values:
+              values: [PENDING, APPROVED, SUSPENDED, CLOSED]
+      - name: is_current
+        tests: [not_null]
+      - name: valid_from
+        tests: [not_null]
+
+# =============================================================================
+# Gold Models
+# =============================================================================
+  - name: dim_customer_360
+    description: >
+      360-degree customer view combining KYC, transaction behaviour,
+      account summary, and AML risk scores.
+      Primary table for CRM, BI dashboards, and ML feature serving.
+    columns:
+      - name: customer_id
+        tests: [not_null, unique]
+      - name: kyc_status
+        tests:
+          - accepted_values:
+              values: [PENDING, APPROVED, SUSPENDED, CLOSED]
+      - name: aml_risk_band
+        tests:
+          - accepted_values:
+              values: [LOW, MEDIUM, HIGH]
+      - name: total_balance_aed
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: -100000
+
+  - name: aml_risk_scores
+    description: >
+      Daily AML behavioural risk scores per customer.
+      Features: transaction velocity, geographic anomalies,
+      structuring patterns, round-amount typologies.
+    columns:
+      - name: customer_id
+        tests: [not_null]
+      - name: score_date
+        tests: [not_null]
+      - name: composite_risk_score
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 100
+      - name: risk_band
+        tests:
+          - not_null
+          - accepted_values:
+              values: [LOW, MEDIUM, HIGH]
+
+# =============================================================================
+# Custom Data Tests
+# =============================================================================
+  - name: fct_transactions
+    tests:
+      # No transactions can have future dates
+      - dbt_utils.expression_is_true:
+          expression: "transaction_datetime <= current_timestamp()"
+          name: no_future_transaction_dates
+      # Reversal transactions must reference an existing original transaction
+      - dbt_utils.expression_is_true:
+          expression: >
+            transaction_type != 'REVERSAL'
+            OR reference_id IN (SELECT transaction_id FROM {{ ref('fct_transactions') }})
+          name: reversal_must_reference_valid_transaction
+
+  - name: dim_customer_360
+    tests:
+      # AML high-risk customers must have been reviewed within 12 months
+      - dbt_utils.expression_is_true:
+          expression: >
+            aml_risk_band != 'HIGH'
+            OR DATEDIFF(CURRENT_DATE, kyc_review_date) <= 365
+          name: high_risk_customers_must_have_recent_kyc_review
+          config:
+            severity: warn

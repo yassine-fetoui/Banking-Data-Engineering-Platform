@@ -1,0 +1,96 @@
+{
+  "expectation_suite_name": "bronze.transactions.critical",
+  "data_asset_type": "Dataset",
+  "meta": {
+    "great_expectations_version": "0.18.12",
+    "owner": "data-engineering",
+    "description": "Critical data quality rules for Bronze transaction table. Failures block Silver promotion."
+  },
+  "expectations": [
+    {
+      "expectation_type": "expect_table_row_count_to_be_between",
+      "kwargs": { "min_value": 1, "max_value": 50000000 },
+      "meta": { "notes": "Alert if batch is suspiciously empty or oversized" }
+    },
+    {
+      "expectation_type": "expect_column_values_to_not_be_null",
+      "kwargs": { "column": "transaction_id" }
+    },
+    {
+      "expectation_type": "expect_column_values_to_be_unique",
+      "kwargs": { "column": "transaction_id" },
+      "meta": { "notes": "Duplicate transaction IDs = double processing — critical for P&L accuracy" }
+    },
+    {
+      "expectation_type": "expect_column_values_to_not_be_null",
+      "kwargs": { "column": "account_id" }
+    },
+    {
+      "expectation_type": "expect_column_values_to_not_be_null",
+      "kwargs": { "column": "customer_id" }
+    },
+    {
+      "expectation_type": "expect_column_values_to_not_be_null",
+      "kwargs": { "column": "amount" }
+    },
+    {
+      "expectation_type": "expect_column_values_to_be_between",
+      "kwargs": {
+        "column": "amount",
+        "min_value": 0.01,
+        "max_value": 100000000,
+        "mostly": 0.999
+      },
+      "meta": { "notes": "0.1% tolerance for legitimate edge cases" }
+    },
+    {
+      "expectation_type": "expect_column_values_to_not_be_null",
+      "kwargs": { "column": "currency" }
+    },
+    {
+      "expectation_type": "expect_column_values_to_be_in_set",
+      "kwargs": {
+        "column": "currency",
+        "value_set": ["USD", "EUR", "AED", "GBP", "SAR", "JPY", "CHF", "SGD", "HKD", "INR"]
+      }
+    },
+    {
+      "expectation_type": "expect_column_values_to_not_be_null",
+      "kwargs": { "column": "status" }
+    },
+    {
+      "expectation_type": "expect_column_values_to_be_in_set",
+      "kwargs": {
+        "column": "status",
+        "value_set": ["PENDING", "COMPLETED", "FAILED", "REVERSED", "FLAGGED"]
+      }
+    },
+    {
+      "expectation_type": "expect_column_values_to_not_be_null",
+      "kwargs": { "column": "transaction_datetime" }
+    },
+    {
+      "expectation_type": "expect_column_values_to_not_be_null",
+      "kwargs": { "column": "payment_token" },
+      "meta": { "notes": "PCI-DSS: every transaction must have a tokenised payment reference" }
+    },
+    {
+      "expectation_type": "expect_column_values_to_not_match_regex",
+      "kwargs": {
+        "column": "payment_token",
+        "regex": "^[0-9]{13,19}$",
+        "mostly": 1.0
+      },
+      "meta": { "notes": "PCI-DSS: reject any raw card numbers that may have slipped through tokenisation" }
+    },
+    {
+      "expectation_type": "expect_column_values_to_be_between",
+      "kwargs": {
+        "column": "transaction_datetime",
+        "min_value": "2020-01-01T00:00:00",
+        "max_value": "2030-01-01T00:00:00"
+      },
+      "meta": { "notes": "Catch timestamp parsing errors (Unix epoch 0, far-future dates)" }
+    }
+  ]
+}

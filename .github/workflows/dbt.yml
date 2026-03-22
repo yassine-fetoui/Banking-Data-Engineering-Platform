@@ -1,0 +1,135 @@
+name: dbt
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "dbt/**"
+  pull_request:
+    branches: [main]
+    paths:
+      - "dbt/**"
+
+jobs:
+  dbt-pr-check:
+    name: dbt Run & Test (dev)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    environment: development
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dbt
+        run: pip install dbt-core==1.7.8 dbt-redshift==1.7.4
+
+      - name: Install dbt packages
+        working-directory: dbt
+        run: dbt deps
+
+      - name: dbt run (changed models only)
+        working-directory: dbt
+        env:
+          DBT_PII_SALT: ${{ secrets.DBT_PII_SALT }}
+          REDSHIFT_HOST: ${{ secrets.REDSHIFT_HOST_DEV }}
+          REDSHIFT_USER: ${{ secrets.REDSHIFT_USER }}
+          REDSHIFT_PASS: ${{ secrets.REDSHIFT_PASS }}
+        run: |
+          dbt run --select state:modified+ \
+            --state ./target \
+            --profiles-dir . --target dev
+
+      - name: dbt test (changed models only)
+        working-directory: dbt
+        env:
+          DBT_PII_SALT: ${{ secrets.DBT_PII_SALT }}
+          REDSHIFT_HOST: ${{ secrets.REDSHIFT_HOST_DEV }}
+          REDSHIFT_USER: ${{ secrets.REDSHIFT_USER }}
+          REDSHIFT_PASS: ${{ secrets.REDSHIFT_PASS }}
+        run: |
+          dbt test --select state:modified+ \
+            --store-failures \
+            --profiles-dir . --target dev
+
+      - name: Generate dbt docs
+        working-directory: dbt
+        run: dbt docs generate --profiles-dir . --target dev
+
+      - name: Upload dbt docs artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dbt-docs
+          path: dbt/target/
+
+  dbt-deploy-prod:
+    name: dbt Deploy (prod)
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: production
+    needs: []
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dbt
+        run: pip install dbt-core==1.7.8 dbt-redshift==1.7.4
+
+      - name: Install dbt packages
+        working-directory: dbt
+        run: dbt deps
+
+      - name: dbt snapshot (SCD2)
+        working-directory: dbt
+        env:
+          DBT_PII_SALT: ${{ secrets.DBT_PII_SALT_PROD }}
+          REDSHIFT_HOST: ${{ secrets.REDSHIFT_HOST_PROD }}
+          REDSHIFT_USER: ${{ secrets.REDSHIFT_USER_PROD }}
+          REDSHIFT_PASS: ${{ secrets.REDSHIFT_PASS_PROD }}
+        run: dbt snapshot --profiles-dir . --target prod
+
+      - name: dbt run (full)
+        working-directory: dbt
+        env:
+          DBT_PII_SALT: ${{ secrets.DBT_PII_SALT_PROD }}
+          REDSHIFT_HOST: ${{ secrets.REDSHIFT_HOST_PROD }}
+          REDSHIFT_USER: ${{ secrets.REDSHIFT_USER_PROD }}
+          REDSHIFT_PASS: ${{ secrets.REDSHIFT_PASS_PROD }}
+        run: dbt run --profiles-dir . --target prod
+
+      - name: dbt test (full)
+        working-directory: dbt
+        env:
+          DBT_PII_SALT: ${{ secrets.DBT_PII_SALT_PROD }}
+          REDSHIFT_HOST: ${{ secrets.REDSHIFT_HOST_PROD }}
+          REDSHIFT_USER: ${{ secrets.REDSHIFT_USER_PROD }}
+          REDSHIFT_PASS: ${{ secrets.REDSHIFT_PASS_PROD }}
+        run: dbt test --store-failures --profiles-dir . --target prod
+
+      - name: Notify Slack on success
+        if: success()
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          payload: |
+            {"text": "✅ dbt prod deploy succeeded — `${{ github.sha }}` by `${{ github.actor }}`"}
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Notify Slack on failure
+        if: failure()
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          payload: |
+            {"text": "🔴 dbt prod deploy FAILED — `${{ github.sha }}` — <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View logs>"}
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

@@ -1,0 +1,61 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# Spark
+derby.log
+metastore_db/
+spark-warehouse/
+/tmp/banking_warehouse/
+
+# Airflow
+airflow/logs/
+airflow/airflow.db
+airflow/*.pid
+airflow/standalone_admin_password.txt
+airflow/webserver_config.py
+
+# dbt
+dbt/target/
+dbt/dbt_packages/
+dbt/logs/
+dbt/.user.yml
+
+# Terraform
+**/.terraform/
+**/*.tfstate
+**/*.tfstate.*
+**/.terraform.lock.hcl
+**/crash.log
+
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# Data files
+data/raw/*.parquet
+data/raw/*.json
+!data/raw/*.csv    # Keep sample CSVs
+
+# IDE
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Test
+.coverage
+htmlcov/
+.pytest_cache/
+reports/

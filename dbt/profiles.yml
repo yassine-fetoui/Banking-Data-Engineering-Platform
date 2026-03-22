@@ -1,0 +1,40 @@
+banking_dbt:
+  target: dev
+
+  outputs:
+
+    # ── Local / CI (no live DB needed for compile/parse) ─────────────────────
+    ci:
+      type: duckdb
+      path: /tmp/banking_dbt_ci.duckdb
+      threads: 4
+
+    # ── Development (Redshift Serverless dev) ─────────────────────────────────
+    dev:
+      type: redshift
+      host: "{{ env_var('REDSHIFT_HOST') }}"
+      port: 5439
+      dbname: banking
+      user: "{{ env_var('REDSHIFT_USER') }}"
+      password: "{{ env_var('REDSHIFT_PASSWORD') }}"
+      schema: banking_dev
+      threads: 4
+      keepalives_idle: 240
+      connect_timeout: 10
+      sslmode: require
+      search_path: banking_dev_bronze,banking_dev_silver,banking_dev_gold,reference
+
+    # ── Production ────────────────────────────────────────────────────────────
+    prod:
+      type: redshift
+      host: "{{ env_var('REDSHIFT_HOST') }}"
+      port: 5439
+      dbname: banking
+      user: "{{ env_var('REDSHIFT_USER') }}"
+      password: "{{ env_var('REDSHIFT_PASSWORD') }}"
+      schema: banking_prod
+      threads: 8
+      keepalives_idle: 240
+      connect_timeout: 10
+      sslmode: require
+      search_path: banking_prod_bronze,banking_prod_silver,banking_prod_gold,reference

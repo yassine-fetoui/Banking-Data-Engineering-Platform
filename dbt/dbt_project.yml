@@ -1,0 +1,57 @@
+name: 'banking_dbt'
+version: '2.0.0'
+config-version: 2
+
+profile: 'banking_dbt'
+
+model-paths:    ["models"]
+test-paths:     ["tests"]
+macro-paths:    ["macros"]
+snapshot-paths: ["snapshots"]
+analysis-paths: ["analyses"]
+seed-paths:     ["seeds"]
+
+target-path: "target"
+clean-targets: ["target", "dbt_packages"]
+
+# ── Model config defaults ──────────────────────────────────────────────────────
+models:
+  banking_dbt:
+    bronze:
+      +schema:       bronze
+      +materialized: view          # Bronze = thin views over Delta/S3
+      +tags:         ["bronze", "daily"]
+    silver:
+      +schema:       silver
+      +materialized: incremental   # Silver = incremental Delta merges
+      +on_schema_change: append_new_columns
+      +tags:         ["silver", "daily"]
+      +pre-hook:
+        - "{{ log('Running silver model: ' ~ this, info=True) }}"
+    gold:
+      +schema:       gold
+      +materialized: table         # Gold = full tables for BI performance
+      +post-hook:
+        - "GRANT SELECT ON {{ this }} TO GROUP bi_users"
+      +tags:         ["gold", "daily"]
+
+# ── Snapshots (SCD Type 2) ─────────────────────────────────────────────────────
+snapshots:
+  banking_dbt:
+    +target_schema: silver
+    +strategy:      check
+    +check_cols:    ["kyc_status", "risk_rating", "customer_segment"]
+    +updated_at:    "last_updated"
+    +invalidate_hard_deletes: true
+
+# ── Seeds ─────────────────────────────────────────────────────────────────────
+seeds:
+  banking_dbt:
+    +schema: reference
+
+# ── Vars ──────────────────────────────────────────────────────────────────────
+vars:
+  ctr_threshold:            40000      # AML cash transaction report threshold
+  lookback_days_velocity:   30
+  lookback_days_geo:        90
+  pii_salt:                 "{{ env_var('DBT_PII_SALT') }}"
