@@ -12,6 +12,17 @@ terraform {
     }
   }
 }
+# ── Object Lock (Compliance mode for regulatory retention) ────────────────────
+resource "aws_s3_bucket_object_lock_configuration" "data_lake" {
+  bucket = aws_s3_bucket.data_lake.id
+
+  rule {
+    default_retention {
+      mode  = "COMPLIANCE"   # Strictest mode - cannot be bypassed even by root
+      years = 7              # AML / regulatory requirement
+    }
+  }
+}
 
 # ── Local values for consistency ─────────────────────────────────────────────
 locals {
