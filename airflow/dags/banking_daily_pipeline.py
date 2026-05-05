@@ -37,6 +37,27 @@ from airflow.utils.trigger_rule import TriggerRule
 from pendulum import datetime
 
 
+# ── Callbacks ─────────────────────────────────────────────────────────────────
+def on_failure_callback(context: dict) -> None:
+    """Send rich Slack alert on task failure."""
+    dag_id = context["dag"].dag_id
+    task_id = context["task_instance"].task_id
+    run_id = context["run_id"]
+    execution_date = context["execution_date"]
+
+    SlackWebhookOperator(
+        task_id="slack_failure_alert",
+        slack_webhook_conn_id="slack_data_alerts",
+        message=(
+            f":red_circle: *Pipeline Failure*\n"
+            f"• DAG: `{dag_id}`\n"
+            f"• Task: `{task_id}`\n"
+            f"• Run: `{run_id}`\n"
+            f"• Date: `{execution_date}`\n"
+            f"• Log: {context['task_instance'].log_url}"
+        ),
+        username="Airflow",
+    ).execute(context)
 
 
 def on_success_callback(context: dict) -> None:
