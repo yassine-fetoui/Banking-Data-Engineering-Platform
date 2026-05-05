@@ -3,54 +3,80 @@ airflow/dags/banking_daily_pipeline.py
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Daily orchestration DAG for the banking data platform.
 
-Schedule  : 02:00 AM UTC daily (after CBS nightly batch closes)
-SLA       : Must complete by 06:00 AM UTC (4-hour window)
-Owner     : data-engineering
+Schedule : 02:00 AM UTC daily (after CBS nightly batch)
+SLA      : Must complete by 06:00 AM UTC (4-hour window)
+Owner    : data-engineering
 
-Execution order:
-  1. [Bronze]  Ingest raw data (transactions, customers, accounts, FX rates)
-  2. [Quality] Run Great Expectations checkpoints on Bronze
-  3. [Silver]  dbt run silver models (SCD2 + transaction cleansing)
-  4. [Silver]  dbt test silver
-  5. [Gold]    Spark AML risk scoring
-  6. [Gold]    dbt run gold models (360 view, P&L, regulatory)
-  7. [Gold]    dbt test gold
-  8. [Serve]   Trigger Redshift COPY from Delta Lake → Redshift Serverless
-  9. [Monitor] Publish pipeline metrics to CloudWatch
+Pipeline Flow:
+    1. Wait for CBS raw files
+    2. Bronze Ingestion (Glue)
+    3. Bronze Data Quality (Great Expectations)
+    4. Silver Layer
+       • dbt models + snapshots
+       • Spark SCD2 (customers)
+    5. Gold Layer
+       • Spark AML Risk Scoring
+       • dbt Gold models (360°, P&L, Regulatory)
+    6. Serve Layer → Redshift Serverless (COPY)
+    7. Observability (CloudWatch + Slack)
 """
+
 from __future__ import annotations
 
 from datetime import timedelta
 
 from airflow.decorators import dag, task, task_group
+from airflow.models import Variable
 from airflow.operators.bash import BashOperator
+from airflow.operators.empty import EmptyOperator
 from airflow.providers.amazon.aws.operators.glue import GlueJobOperator
 from airflow.providers.amazon.aws.operators.redshift_sql import RedshiftSQLOperator
 from airflow.providers.amazon.aws.sensors.s3 import S3KeySensor
 from airflow.providers.slack.operators.slack_webhook import SlackWebhookOperator
+from airflow.utils.trigger_rule import TriggerRule
 from pendulum import datetime
 
 
 # ── Callbacks ─────────────────────────────────────────────────────────────────
-
-def _on_failure(context: dict) -> None:
-    """Alert Slack on any task failure."""
-    dag_id  = context["dag"].dag_id
+def on_failure_callback(context: dict) -> None:
+    """Send rich Slack alert on task failure."""
+    dag_id = context["dag"].dag_id
     task_id = context["task_instance"].task_id
-    run_id  = context["run_id"]
+    run_id = context["run_id"]
+    execution_date = context["execution_date"]
+
     SlackWebhookOperator(
         task_id="slack_failure_alert",
         slack_webhook_conn_id="slack_data_alerts",
         message=(
-            f":red_circle: *FAILURE* — `{dag_id}.{task_id}`\n"
-            f"Run: `{run_id}`\n"
-            f"Log: {context['task_instance'].log_url}"
+            f":red_circle: *Pipeline Failure*\n"
+            f"• DAG: `{dag_id}`\n"
+            f"• Task: `{task_id}`\n"
+            f"• Run: `{run_id}`\n"
+            f"• Date: `{execution_date}`\n"
+            f"• Log: {context['task_instance'].log_url}"
         ),
+        username="Airflow",
     ).execute(context)
 
 
-# ── DAG ───────────────────────────────────────────────────────────────────────
+def on_success_callback(context: dict) -> None:
+    """Send success notification with duration."""
+    duration = context["task_instance"].end_date - context["dag_run"].start_date
 
+    SlackWebhookOperator(
+        task_id="slack_success_notification",
+        slack_webhook_conn_id="slack_data_alerts",
+        message=(
+            f":white_check_mark: *Banking Daily Pipeline — SUCCESS*\n"
+            f"Date: `{context['ds']}` | Env: `{Variable.get('env')}`\n"
+            f"Duration: `{duration}`"
+        ),
+        username="Airflow",
+    ).execute(context)
+
+
+# ── DAG Definition ────────────────────────────────────────────────────────────
 @dag(
     dag_id="banking_daily_pipeline",
     schedule="0 2 * * *",
@@ -58,42 +84,49 @@ def _on_failure(context: dict) -> None:
     catchup=False,
     max_active_runs=1,
     default_args={
-        "owner":             "data-engineering",
-        "retries":           2,
-        "retry_delay":       timedelta(minutes=10),
+        "owner": "data-engineering",
+        "retries": 2,
+        "retry_delay": timedelta(minutes=10),
         "execution_timeout": timedelta(hours=1),
-        "on_failure_callback": _on_failure,
-        "email_on_failure":  True,
-        "email":             ["data-engineering@bank.com"],
-        "sla":               timedelta(hours=4),
+        "on_failure_callback": on_failure_callback,
+        "email_on_failure": True,
+        "email": ["data-engineering@bank.com"],
+        "sla": timedelta(hours=4),
     },
-    tags=["banking", "daily", "bronze", "silver", "gold"],
+    tags=["banking", "daily", "bronze", "silver", "gold", "production"],
     doc_md=__doc__,
+    render_template_as_native_obj=True,   # Better Jinja handling
 )
-def banking_daily_pipeline() -> None:
+def banking_daily_pipeline():
 
-    # ── 0. Wait for CBS batch file to land ────────────────────────────────────
-    wait_for_cbs_file = S3KeySensor(
+    # ── 0. Wait for CBS files ─────────────────────────────────────────────────
+    wait_for_cbs = S3KeySensor(
         task_id="wait_for_cbs_batch_file",
-        bucket_name="banking-landing-{{ var.value.env }}",
+        bucket_name=f"banking-landing-{Variable.get('env')}",
         bucket_key="transactions/date={{ ds }}/part-*.csv",
         wildcard_match=True,
-        timeout=3600,
-        poke_interval=120,
+        timeout=7200,           # 2h max wait
+        poke_interval=180,
         mode="reschedule",
+        soft_fail=False,
+    )
+
+    start = EmptyOperator(task_id="start")
+    end = EmptyOperator(
+        task_id="end",
+        trigger_rule=TriggerRule.ALL_DONE,   # Ensure metrics run even on partial failure
     )
 
     # ── 1. Bronze Ingestion ───────────────────────────────────────────────────
-    @task_group(group_id="bronze_ingestion")
-    def bronze_ingestion() -> None:
-
+    @task_group(group_id="bronze_ingestion", tooltip="Ingest raw data from CBS")
+    def bronze_ingestion():
         ingest_transactions = GlueJobOperator(
             task_id="ingest_transactions",
             job_name="banking-bronze-transactions",
             script_arguments={
-                "--env":        "{{ var.value.env }}",
+                "--env": "{{ var.value.env }}",
                 "--batch-date": "{{ ds }}",
-                "--batch-id":   "{{ run_id }}",
+                "--batch-id": "{{ run_id }}",
             },
             aws_conn_id="aws_banking",
             region_name="eu-west-1",
@@ -103,7 +136,7 @@ def banking_daily_pipeline() -> None:
             task_id="ingest_customers",
             job_name="banking-bronze-customers",
             script_arguments={
-                "--env":        "{{ var.value.env }}",
+                "--env": "{{ var.value.env }}",
                 "--batch-date": "{{ ds }}",
             },
             aws_conn_id="aws_banking",
@@ -114,7 +147,7 @@ def banking_daily_pipeline() -> None:
             task_id="ingest_accounts",
             job_name="banking-bronze-accounts",
             script_arguments={
-                "--env":        "{{ var.value.env }}",
+                "--env": "{{ var.value.env }}",
                 "--batch-date": "{{ ds }}",
             },
             aws_conn_id="aws_banking",
@@ -124,203 +157,210 @@ def banking_daily_pipeline() -> None:
         ingest_fx_rates = GlueJobOperator(
             task_id="ingest_fx_rates",
             job_name="banking-bronze-fx-rates",
-            script_arguments={"--rate-date": "{{ ds }}"},
+            script_arguments={
+                "--env": "{{ var.value.env }}",
+                "--rate-date": "{{ ds }}",
+            },
             aws_conn_id="aws_banking",
             region_name="eu-west-1",
         )
 
-        # FX rates must land before Silver (needed for currency conversion)
-        [ingest_transactions, ingest_customers, ingest_accounts, ingest_fx_rates]
+        # FX rates needed for Silver currency conversion
+        [ingest_transactions, ingest_customers, ingest_accounts] >> ingest_fx_rates
 
-    # ── 2. Data Quality — Bronze ──────────────────────────────────────────────
-    @task_group(group_id="bronze_quality")
-    def bronze_quality() -> None:
-
-        ge_transactions = BashOperator(
+    # ── 2. Bronze Quality ─────────────────────────────────────────────────────
+    @task_group(group_id="bronze_quality", tooltip="Great Expectations validation")
+    def bronze_quality():
+        BashOperator(
             task_id="ge_checkpoint_transactions",
             bash_command=(
                 "great_expectations checkpoint run bronze_transactions "
-                "--batch-request '{\"batch_spec_passthrough\": {\"reader_options\": "
-                "{\"partitionFilter\": \"ingestion_date={{ ds }}\"}}}'"
+                f"--batch-request '{{\"batch_spec_passthrough\": {{\"reader_options\": "
+                "{{\"partitionFilter\": \"ingestion_date={{ ds }}\"}}}}}}}'"
             ),
         )
 
-        ge_customers = BashOperator(
+        BashOperator(
             task_id="ge_checkpoint_customers",
             bash_command="great_expectations checkpoint run bronze_customers",
         )
 
-        [ge_transactions, ge_customers]
+    # ── 3. Silver Layer ───────────────────────────────────────────────────────
+    @task_group(group_id="silver_layer")
+    def silver_layer():
+        @task_group(group_id="dbt_silver")
+        def dbt_silver():
+            dbt_run = BashOperator(
+                task_id="dbt_run",
+                bash_command=(
+                    "cd /opt/airflow/dbt && "
+                    "dbt run --select silver+ --vars '{run_date: {{ ds }}}' "
+                    "--profiles-dir . --target {{ var.value.env }}"
+                ),
+            )
+            dbt_snapshot = BashOperator(
+                task_id="dbt_snapshot",
+                bash_command=(
+                    "cd /opt/airflow/dbt && "
+                    "dbt snapshot --profiles-dir . --target {{ var.value.env }}"
+                ),
+            )
+            dbt_test = BashOperator(
+                task_id="dbt_test",
+                bash_command=(
+                    "cd /opt/airflow/dbt && "
+                    "dbt test --select silver --store-failures "
+                    "--profiles-dir . --target {{ var.value.env }}"
+                ),
+            )
+            dbt_run >> dbt_snapshot >> dbt_test
 
-    # ── 3. Silver — dbt ───────────────────────────────────────────────────────
-    @task_group(group_id="silver_dbt")
-    def silver_dbt() -> None:
-
-        dbt_silver_run = BashOperator(
-            task_id="dbt_silver_run",
-            bash_command=(
-                "cd /opt/airflow/dbt && "
-                "dbt run --select silver --vars '{run_date: {{ ds }}}' "
-                "--profiles-dir . --target {{ var.value.env }}"
-            ),
+        spark_scd2 = GlueJobOperator(
+            task_id="spark_scd2_customers",
+            job_name="banking-silver-scd2-customers",
+            script_arguments={
+                "--env": "{{ var.value.env }}",
+                "--batch-date": "{{ ds }}",
+            },
+            aws_conn_id="aws_banking",
+            region_name="eu-west-1",
         )
 
-        dbt_silver_snapshot = BashOperator(
-            task_id="dbt_silver_snapshot",
-            bash_command=(
-                "cd /opt/airflow/dbt && "
-                "dbt snapshot --profiles-dir . --target {{ var.value.env }}"
-            ),
+        dbt_silver() >> spark_scd2
+
+    # ── 4. Gold Layer ─────────────────────────────────────────────────────────
+    @task_group(group_id="gold_layer")
+    def gold_layer():
+        spark_aml = GlueJobOperator(
+            task_id="spark_aml_risk_scores",
+            job_name="banking-gold-aml-scoring",
+            script_arguments={
+                "--env": "{{ var.value.env }}",
+                "--batch-date": "{{ ds }}",
+            },
+            aws_conn_id="aws_banking",
+            region_name="eu-west-1",
         )
 
-        dbt_silver_test = BashOperator(
-            task_id="dbt_silver_test",
-            bash_command=(
-                "cd /opt/airflow/dbt && "
-                "dbt test --select silver --store-failures "
-                "--profiles-dir . --target {{ var.value.env }}"
-            ),
-        )
+        @task_group(group_id="dbt_gold")
+        def dbt_gold():
+            dbt_run = BashOperator(
+                task_id="dbt_run",
+                bash_command=(
+                    "cd /opt/airflow/dbt && "
+                    "dbt run --select gold+ --vars '{run_date: {{ ds }}}' "
+                    "--profiles-dir . --target {{ var.value.env }}"
+                ),
+            )
+            dbt_test = BashOperator(
+                task_id="dbt_test",
+                bash_command=(
+                    "cd /opt/airflow/dbt && "
+                    "dbt test --select gold --store-failures "
+                    "--profiles-dir . --target {{ var.value.env }}"
+                ),
+            )
+            dbt_run >> dbt_test
 
-        dbt_silver_run >> dbt_silver_snapshot >> dbt_silver_test
+        spark_aml >> dbt_gold()
 
-    # ── 4. Silver — Spark SCD2 ────────────────────────────────────────────────
-    spark_scd2 = GlueJobOperator(
-        task_id="spark_scd2_customers",
-        job_name="banking-silver-scd2-customers",
-        script_arguments={
-            "--env":        "{{ var.value.env }}",
-            "--batch-date": "{{ ds }}",
-        },
-        aws_conn_id="aws_banking",
-        region_name="eu-west-1",
-    )
-
-    # ── 5. Gold — AML Scoring (Spark) ─────────────────────────────────────────
-    spark_aml = GlueJobOperator(
-        task_id="spark_aml_risk_scores",
-        job_name="banking-gold-aml-scoring",
-        script_arguments={
-            "--env":        "{{ var.value.env }}",
-            "--batch-date": "{{ ds }}",
-        },
-        aws_conn_id="aws_banking",
-        region_name="eu-west-1",
-    )
-
-    # ── 6. Gold — dbt ────────────────────────────────────────────────────────
-    @task_group(group_id="gold_dbt")
-    def gold_dbt() -> None:
-
-        dbt_gold_run = BashOperator(
-            task_id="dbt_gold_run",
-            bash_command=(
-                "cd /opt/airflow/dbt && "
-                "dbt run --select gold --vars '{run_date: {{ ds }}}' "
-                "--profiles-dir . --target {{ var.value.env }}"
-            ),
-        )
-
-        dbt_gold_test = BashOperator(
-            task_id="dbt_gold_test",
-            bash_command=(
-                "cd /opt/airflow/dbt && "
-                "dbt test --select gold --store-failures "
-                "--profiles-dir . --target {{ var.value.env }}"
-            ),
-        )
-
-        dbt_gold_run >> dbt_gold_test
-
-    # ── 7. Load Gold → Redshift ───────────────────────────────────────────────
+    # ── 5. Serve to Redshift ──────────────────────────────────────────────────
     @task_group(group_id="redshift_load")
-    def redshift_load() -> None:
-
+    def redshift_load():
         load_customer_360 = RedshiftSQLOperator(
-            task_id="copy_customer_360_to_redshift",
+            task_id="copy_customer_360",
             redshift_conn_id="redshift_banking",
             sql="""
-            COPY gold.dim_customer_360
-            FROM 's3://banking-data-lake-{{ var.value.env }}/gold/dim_customer_360/'
-            IAM_ROLE '{{ var.value.redshift_iam_role }}'
-            FORMAT PARQUET;
+                COPY gold.dim_customer_360
+                FROM 's3://banking-data-lake-{{ var.value.env }}/gold/dim_customer_360/'
+                IAM_ROLE '{{ var.value.redshift_iam_role }}'
+                FORMAT PARQUET MANIFEST;
             """,
         )
 
-        load_aml_scores = RedshiftSQLOperator(
-            task_id="copy_aml_scores_to_redshift",
+        load_aml = RedshiftSQLOperator(
+            task_id="copy_aml_scores",
             redshift_conn_id="redshift_banking",
             sql="""
-            COPY gold.aml_risk_scores
-            FROM 's3://banking-data-lake-{{ var.value.env }}/gold/aml_risk_scores/score_date={{ ds }}/'
-            IAM_ROLE '{{ var.value.redshift_iam_role }}'
-            FORMAT PARQUET;
+                COPY gold.aml_risk_scores
+                FROM 's3://banking-data-lake-{{ var.value.env }}/gold/aml_risk_scores/score_date={{ ds }}/'
+                IAM_ROLE '{{ var.value.redshift_iam_role }}'
+                FORMAT PARQUET;
             """,
         )
 
-        load_daily_pnl = RedshiftSQLOperator(
-            task_id="copy_daily_pnl_to_redshift",
+        load_pnl = RedshiftSQLOperator(
+            task_id="copy_daily_pnl",
             redshift_conn_id="redshift_banking",
             sql="""
-            COPY gold.fct_daily_pnl
-            FROM 's3://banking-data-lake-{{ var.value.env }}/gold/fct_daily_pnl/report_date={{ ds }}/'
-            IAM_ROLE '{{ var.value.redshift_iam_role }}'
-            FORMAT PARQUET;
+                COPY gold.fct_daily_pnl
+                FROM 's3://banking-data-lake-{{ var.value.env }}/gold/fct_daily_pnl/report_date={{ ds }}/'
+                IAM_ROLE '{{ var.value.redshift_iam_role }}'
+                FORMAT PARQUET;
             """,
         )
 
-        [load_customer_360, load_aml_scores, load_daily_pnl]
+        [load_customer_360, load_aml, load_pnl]
 
-    # ── 8. Publish metrics ────────────────────────────────────────────────────
-    @task(task_id="publish_pipeline_metrics")
-    def publish_metrics(**context: dict) -> None:
+    # ── 6. Metrics ────────────────────────────────────────────────────────────
+    @task(task_id="publish_metrics", retries=1)
+    def publish_metrics(**context):
         import boto3
+        from datetime import datetime as dt
+
         cloudwatch = boto3.client("cloudwatch", region_name="eu-west-1")
+        duration = (context["task_instance"].end_date - context["dag_run"].start_date).total_seconds()
+
         cloudwatch.put_metric_data(
             Namespace="Banking/DataPipeline",
             MetricData=[
                 {
                     "MetricName": "PipelineSuccess",
-                    "Value":      1,
-                    "Unit":       "Count",
+                    "Value": 1,
+                    "Unit": "Count",
                     "Dimensions": [
-                        {"Name": "Environment", "Value": "{{ var.value.env }}"},
-                        {"Name": "RunDate",     "Value": "{{ ds }}"},
+                        {"Name": "Environment", "Value": Variable.get("env")},
+                        {"Name": "RunDate", "Value": context["ds"]},
                     ],
-                }
+                },
+                {
+                    "MetricName": "PipelineDurationSeconds",
+                    "Value": duration,
+                    "Unit": "Seconds",
+                    "Dimensions": [{"Name": "Environment", "Value": Variable.get("env")}],
+                },
             ],
         )
 
-    # ── 9. Success notification ───────────────────────────────────────────────
-    slack_success = SlackWebhookOperator(
-        task_id="slack_success_notification",
-        slack_webhook_conn_id="slack_data_alerts",
-        message=(
-            ":white_check_mark: *Banking Daily Pipeline — SUCCESS*\n"
-            "Date: `{{ ds }}` | Env: `{{ var.value.env }}`\n"
-            "Duration: `{{ macros.datetime.utcnow() - dag_run.start_date }}`"
-        ),
-    )
-
-    # ── Wire up ───────────────────────────────────────────────────────────────
+    # ── Wire everything together ──────────────────────────────────────────────
     bronze = bronze_ingestion()
     quality = bronze_quality()
-    silver = silver_dbt()
-    gold_spark = spark_aml
-    gold = gold_dbt()
+    silver = silver_layer()
+    gold = gold_layer()
     redshift = redshift_load()
     metrics = publish_metrics()
 
     (
-        wait_for_cbs_file
+        start
+        >> wait_for_cbs
         >> bronze
         >> quality
-        >> [silver, spark_scd2]
-        >> gold_spark
+        >> silver
         >> gold
         >> redshift
         >> metrics
-        >> slack_success
+        >> end
+    )
+
+    # Optional: success notification only on full success
+    metrics >> SlackWebhookOperator(
+        task_id="slack_success",
+        slack_webhook_conn_id="slack_data_alerts",
+        message=(
+            ":tada: *Banking Daily Pipeline completed successfully*\n"
+            f"Date: `{{{{ ds }}}}` | Duration: `{{{{ (execution_date - start_date).total_seconds() }}}}s`"
+        ),
+        trigger_rule=TriggerRule.ALL_SUCCESS,
     )
 
 
