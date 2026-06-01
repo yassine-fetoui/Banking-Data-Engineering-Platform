@@ -1,12 +1,7 @@
-# 🏦 Banking Data Engineering Platform
+# Banking Data Engineering Platform
 
 > **Production-grade** end-to-end data engineering platform for banking — processing KYC, transactions, fraud signals, and regulatory reports across a full modern data stack.
 
-[![CI](https://github.com/yassine-fetoui/banking-data-engineering/actions/workflows/ci.yml/badge.svg)](https://github.com/yassine-fetoui/banking-data-engineering/actions/workflows/ci.yml)
-[![dbt](https://github.com/yassine-fetoui/banking-data-engineering/actions/workflows/dbt.yml/badge.svg)](https://github.com/yassine-fetoui/banking-data-engineering/actions/workflows/dbt.yml)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
 ---
 
