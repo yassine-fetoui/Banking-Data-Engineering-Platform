@@ -5,50 +5,55 @@
 
 ---
 
-## 🏗️ Architecture
+```mermaid
+flowchart TB
+    subgraph SRC["🔌 SOURCE SYSTEMS"]
+        CBS["Core Banking (CBS)"]
+        CARD["Card Systems"]
+        KYC["KYC Portal"]
+        MDF["Market Data Feeds"]
+    end
 
-```
-┌──────────────────────────────────────────────────────────────────────────┐
-│                         SOURCE SYSTEMS                                    │
-│  Core Banking (CBS) │ Card Systems │ KYC Portal │ Market Data Feeds      │
-└────────────┬─────────────────────────┬────────────────────────────────────┘
-             │ Batch (nightly)         │ Streaming (real-time)
-             ▼                         ▼
-┌────────────────────┐    ┌────────────────────────────────┐
-│   AWS S3           │    │   Apache Kafka (MSK)           │
-│   Landing Zone     │    │   • transactions (topic)       │
-│   (raw CSV/JSON)   │    │   • fraud-signals (topic)      │
-│                    │    │   • kyc-events (topic)         │
-└────────┬───────────┘    └──────────────┬─────────────────┘
-         │                               │
-         ▼                               ▼
-┌──────────────────────────────────────────────────────────────────────────┐
-│                    BRONZE LAYER  (Apache Spark + Delta Lake)              │
-│   Raw ingestion — immutable, schema-on-read, audit-complete               │
-│   Partitioned by: source_system / ingestion_date                          │
-└──────────────────────────────┬───────────────────────────────────────────┘
-                               │
-                               ▼
-┌──────────────────────────────────────────────────────────────────────────┐
-│              SILVER LAYER  (dbt + Spark)                                  │
-│   • Data quality (Great Expectations)                                     │
-│   • SCD Type 2 — Customer KYC history                                     │
-│   • PII masking / tokenisation                                            │
-│   • Deduplication + schema enforcement                                    │
-└──────────────────────────────┬───────────────────────────────────────────┘
-                               │
-                               ▼
-┌──────────────────────────────────────────────────────────────────────────┐
-│              GOLD LAYER  (dbt + Amazon Redshift)                          │
-│   • 360° Customer view                  • AML / Fraud risk scores         │
-│   • Daily P&L and balance sheet         • Regulatory reports (Basel III)  │
-│   • Product performance KPIs            • Churn prediction features       │
-└──────────────────────────────┬───────────────────────────────────────────┘
-                               │
-         ┌─────────────────────┼─────────────────────┐
-         ▼                     ▼                     ▼
-   Amazon Redshift       Grafana / QuickSight    ML Feature Store
-   (BI & Reporting)      (Monitoring)            (SageMaker)
+    subgraph ING["📥 INGESTION"]
+        S3["AWS S3<br/>Landing Zone<br/>(raw CSV/JSON)"]
+        KAFKA["Apache Kafka (MSK)<br/>• transactions<br/>• fraud-signals<br/>• kyc-events"]
+    end
+
+    subgraph BRONZE["🥉 BRONZE LAYER"]
+        B["Apache Spark + Delta Lake<br/>Raw ingestion — immutable, schema-on-read, audit-complete<br/>Partitioned by: source_system / ingestion_date"]
+    end
+
+    subgraph SILVER["🥈 SILVER LAYER"]
+        S["dbt + Spark<br/>Data quality (Great Expectations) | SCD Type 2 — Customer KYC history<br/>PII masking / tokenisation | Deduplication + schema enforcement"]
+    end
+
+    subgraph GOLD["🥇 GOLD LAYER"]
+        G["dbt + Amazon Redshift<br/>360° Customer view | AML / Fraud risk scores | Daily P&L<br/>Regulatory reports (Basel III) | Product performance KPIs | Churn prediction features"]
+    end
+
+    subgraph CONS["📊 CONSUMPTION"]
+        RS["Amazon Redshift<br/>BI & Reporting"]
+        GRAF["Grafana / QuickSight<br/>Monitoring & Dashboards"]
+        ML["ML Feature Store<br/>SageMaker"]
+    end
+
+    CBS -->|"Batch (nightly)"| S3
+    CARD -->|"Batch (nightly)"| S3
+    KYC -->|"Batch (nightly)"| S3
+    MDF -->|"Batch (nightly)"| S3
+    
+    CBS -->|"Streaming"| KAFKA
+    CARD -->|"Streaming"| KAFKA
+    KYC -->|"Streaming"| KAFKA
+    MDF -->|"Streaming"| KAFKA
+
+    S3 --> B
+    KAFKA --> B
+    B --> S
+    S --> G
+    G --> RS
+    G --> GRAF
+    G --> ML
 ```
 
 ---
