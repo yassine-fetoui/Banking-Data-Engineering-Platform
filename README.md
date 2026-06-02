@@ -1,6 +1,6 @@
 # Banking Data Engineering Platform
 
-> **A production-grade, end-to-end data engineering platform designed for the banking sector.** It handles the processing of KYC (Know Your Customer) data, transactions, fraud signals, and regulatory reports, leveraging a modern and robust data architecture.
+> **A production-grade, end-to-end data engineering platform designed for the banking sector.** It processes KYC (Know Your Customer) data, transactions, fraud signals, and regulatory reports, leveraging a modern, robust data architecture.
 
 ---
 
@@ -8,35 +8,35 @@
 
 ##  Detailed Architecture
 
-This platform's architecture is designed to ensure the **reliability**, **scalability**, **security**, and **regulatory compliance** of banking data. It is structured into several distinct layers, each with clear responsibilities, guaranteeing a consistent and auditable data flow from source to consumption.
+This platform's architecture is designed to ensure the **reliability**, **scalability**, **security**, and **regulatory compliance** of banking data. It is structured into several distinct layers, each with clear responsibilities, ensuring a consistent, auditable data flow from source to consumption.
 
 ```mermaid
 flowchart TB
-    subgraph SRC["🔌 SOURCE SYSTEMS"]
+    subgraph SRC[" SOURCE SYSTEMS"]
         CBS["Core Banking (CBS)"]
         CARD["Card Systems"]
         KYC["KYC Portal"]
         MDF["Market Data Feeds"]
     end
 
-    subgraph ING["📥 INGESTION"]
+    subgraph ING[" INGESTION"]
         S3["AWS S3<br/>Landing Zone<br/>(raw CSV/JSON)"]
         KAFKA["Apache Kafka (MSK)<br/>• transactions<br/>• fraud-signals<br/>• kyc-events"]
     end
 
-    subgraph BRONZE["🥉 BRONZE LAYER"]
+    subgraph BRONZE[" BRONZE LAYER"]
         B["Apache Spark + Delta Lake<br/>Raw ingestion — immutable, schema-on-read, audit-complete<br/>Partitioned by: source_system / ingestion_date"]
     end
 
-    subgraph SILVER["🥈 SILVER LAYER"]
+    subgraph SILVER[" SILVER LAYER"]
         S["dbt + Spark<br/>Data quality (Great Expectations) | SCD Type 2 — Customer KYC history<br/>PII masking / tokenisation | Deduplication + schema enforcement"]
     end
 
-    subgraph GOLD["🥇 GOLD LAYER"]
+    subgraph GOLD["GOLD LAYER"]
         G["dbt + Amazon Redshift<br/>360° Customer view | AML / Fraud risk scores | Daily P&L<br/>Regulatory reports (Basel III) | Product performance KPIs | Churn prediction features"]
     end
 
-    subgraph CONS["📊 CONSUMPTION"]
+    subgraph CONS["CONSUMPTION"]
         RS["Amazon Redshift<br/>BI & Reporting"]
         GRAF["Grafana / QuickSight<br/>Monitoring & Dashboards"]
         ML["ML Feature Store<br/>SageMaker"]
@@ -176,7 +176,7 @@ A comprehensive monitoring and alerting system is in place to ensure the operati
 
 ---
 
-## 🛠️ Tech Stack
+##  Tech Stack
 
 | Layer / Category | Tool / Service | Key Objective |
 |--------------------|-----------------|--------------|
@@ -325,7 +325,7 @@ The Gold layer includes **pre-built views** for capital adequacy ratios, liquidi
 
 ---
 
-## 📊 dbt Model Lineage
+##  dbt Model Lineage
 
 dbt model lineage provides full visibility into the data flow and dependencies between transformations, from source to consumption.
 
