@@ -44,10 +44,11 @@ flowchart TB
 
     CBS -->|"Batch "| S3
     CARD -->|"Batch "| S3
-   
+  
     
-    CBS -->|"Streaming"| KAFKA
-    CARD -->|"Streaming"| KAFKA
+
+    KYC -->|"Streaming"| KAFKA
+    MDF -->|"Streaming"| KAFKA
   
 
     S3 --> B
