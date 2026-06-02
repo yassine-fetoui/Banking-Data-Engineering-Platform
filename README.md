@@ -42,10 +42,10 @@ flowchart TB
         ML["ML Feature Store<br/>SageMaker"]
     end
 
-    CBS -->|"Batch (nightly)"| S3
-    CARD -->|"Batch (nightly)"| S3
-    KYC -->|"Batch (nightly)"| S3
-    MDF -->|"Batch (nightly)"| S3
+    CBS -->|"Batch "| S3
+    CARD -->|"Batch "| S3
+    KYC -->|"Batch "| S3
+    MDF -->|"Batch "| S3
     
     CBS -->|"Streaming"| KAFKA
     CARD -->|"Streaming"| KAFKA
@@ -70,7 +70,7 @@ This layer is responsible for **collecting raw data** from various banking sourc
 *   **Data Sources**: Systems include **Core Banking Systems (CBS)** for transactional data and customer accounts, **Card Systems** for credit/debit card activities, **KYC Portals** for customer identification information, and **Market Data Feeds** for stock quotes, exchange rates, and other external financial data.
 
 *   **Ingestion Mechanisms**:
-    *   **Batch (Nightly/Scheduled)**: For large volumes of less time-sensitive data, such as end-of-day reports or historical KYC updates. Ingestion occurs via Spark/Delta Lake connectors to **AWS S3 (Landing Zone)**.
+    *   **Batch ( /Scheduled)**: For large volumes of less time-sensitive data, such as end-of-day reports or historical KYC updates. Ingestion occurs via Spark/Delta Lake connectors to **AWS S3 (Landing Zone)**.
     *   **Streaming (Real-time/Near Real-time)**: For data requiring immediate processing, such as financial transactions, fraud signals, and KYC events. **Apache Kafka (AWS MSK)** is used as an event bus, with **Avro** for message serialization and **Confluent Schema Registry** for schema management, ensuring data compatibility over time.
 
 *   **Landing Zone (AWS S3)**: Serves as the initial repository for raw batch-ingested data. Data is stored in its original format (CSV, JSON, Parquet) in an **immutable** manner, with **S3 versioning** enabled for audit and recovery purposes. Partitioning by `source_system` and `ingestion_date` optimizes access and data lifecycle management.
