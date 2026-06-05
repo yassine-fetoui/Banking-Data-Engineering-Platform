@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import uuid
 from datetime import date
+from pyspark.sql import DataFrame
 
 import structlog
 from pyspark.sql import DataFrame
