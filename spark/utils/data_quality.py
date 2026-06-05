@@ -5,6 +5,7 @@ Reusable PySpark data quality utilities.
 Used in Silver layer before promoting data to Gold.
 """
 from __future__ import annotations
+from typing import Callable
 
 import structlog
 from pyspark.sql import DataFrame
@@ -35,7 +36,8 @@ class DataQualityChecker:
         self._df         = df
         self._table      = table
         self._fail_fast  = fail_fast
-        self._checks: list[tuple[str, callable]] = []
+        self._checks: list[tuple[str, Callable]] = []
+
 
     # ── Check builders ────────────────────────────────────────────────────────
 
