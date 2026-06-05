@@ -11,6 +11,7 @@ from chispa import assert_df_equality
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql.types import DecimalType, StringType, StructField, StructType, TimestampType
+from decimal import Decimal
 
 from spark.utils.data_quality import DataQualityChecker, DataQualityError, add_audit_columns, mask_pii
 
@@ -28,11 +29,11 @@ def spark() -> SparkSession:
 
 @pytest.fixture
 def sample_transactions(spark):
-    data = [
-        ("txn_001", "acc_1", "cust_1", 1500.00, "USD", "DEBIT",   "COMPLETED"),
-        ("txn_002", "acc_2", "cust_2", 5000.00, "AED", "CREDIT",  "COMPLETED"),
-        ("txn_003", "acc_3", "cust_3",  250.50, "EUR", "TRANSFER","PENDING"),
-    ]
+   data = [
+    ("txn_001", "acc_1", "cust_1", Decimal("1500.00"), "USD", "DEBIT",    "COMPLETED"),
+    ("txn_002", "acc_2", "cust_2", Decimal("5000.00"), "AED", "CREDIT",   "COMPLETED"),
+    ("txn_003", "acc_3", "cust_3", Decimal("250.50"),  "EUR", "TRANSFER", "PENDING"),
+]
     schema = StructType([
         StructField("transaction_id",   StringType(),       False),
         StructField("account_id",       StringType(),       False),
