@@ -85,14 +85,18 @@ jobs:
           cache: pip
 
       - name: Install dbt
+       
         run: |
-            pip install dbt-core==1.7.8 dbt-redshift==1.7.4
+           pip install \
+            "dbt-core>=1.8.0,<1.9.0" \
+            "dbt-redshift>=1.8.0,<1.9.0"
             pip install --upgrade 'protobuf>=4.0.0'
             continue-on-error: true
 
       - name: dbt deps
         working-directory: dbt
         run: dbt deps
+        
 
       - name: dbt compile (validates SQL syntax)
         working-directory: dbt
