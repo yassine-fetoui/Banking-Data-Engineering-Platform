@@ -54,11 +54,10 @@ RAW_SCHEMA = StructType([
 
 PII_COLUMNS = ["card_number_masked"]
 
-
 def read_raw_transactions(spark, landing_path: str, batch_date: str) -> DataFrame:
     """Read raw CSV/JSON transactions from the landing zone for a given date."""
     log.info("reading_raw_transactions", path=landing_path, batch_date=batch_date)
-    return (
+    df: DataFrame = (
         spark.read
         .schema(RAW_SCHEMA)
         .option("header", "true")
@@ -66,7 +65,7 @@ def read_raw_transactions(spark, landing_path: str, batch_date: str) -> DataFram
         .option("columnNameOfCorruptRecord", "_corrupt_record")
         .csv(f"{landing_path}/transactions/date={batch_date}/")
     )
-
+    return df
 
 def transform_bronze(df: DataFrame, batch_id: str) -> DataFrame:
     """Apply Bronze-layer transformations: audit columns, PII hashing, partitioning key."""
