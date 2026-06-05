@@ -40,7 +40,7 @@ module "kafka" {
   vpc_id             = var.vpc_id
   vpc_cidr           = var.vpc_cidr
   private_subnet_ids = var.private_subnet_ids
-  kms_key_arn        = module.s3.data_lake_kms_arn
+  kms_key_arn        = module.s3.data_lake_kms_key_arn  
   logs_bucket        = "banking-logs-dev"
 }
 
@@ -51,7 +51,7 @@ module "redshift" {
   vpc_cidr           = var.vpc_cidr
   private_subnet_ids = var.private_subnet_ids
   admin_password     = var.redshift_admin_password
-  data_lake_kms_arn  = module.s3.data_lake_kms_arn
+  data_lake_kms_arn  = module.s3.data_lake_kms_key_arn  
 }
 
 # module "iam" {
