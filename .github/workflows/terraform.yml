@@ -40,11 +40,11 @@ jobs:
         with:
           terraform_version: "1.7.0"
 
-      - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_TERRAFORM_ROLE_ARN }}
-          aws-region: eu-west-1
+      # - name: Configure AWS credentials (OIDC)
+      #   uses: aws-actions/configure-aws-credentials@v4
+      #   with:
+      #     role-to-assume: ${{ secrets.AWS_TERRAFORM_ROLE_ARN }}
+      #     aws-region: eu-west-1
 
       - name: Terraform Init
         run: terraform init
