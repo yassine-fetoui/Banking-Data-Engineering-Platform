@@ -77,42 +77,40 @@ resource "aws_msk_cluster" "banking" {
 
 # ── Topics (created via Terraform for IaC governance) ────────────────────────
 
-resource "aws_msk_topic" "transactions" {
-  cluster_arn         = aws_msk_cluster.banking.arn
-  name                = "banking.transactions"
-  partitions          = var.environment == "prod" ? 24 : 6
-  replication_factor  = var.environment == "prod" ? 3  : 2
-  configs = {
-    "retention.ms"          = "604800000"     # 7 days
-    "cleanup.policy"        = "delete"
-    "compression.type"      = "lz4"
-    "min.insync.replicas"   = var.environment == "prod" ? "2" : "1"
-    "message.max.bytes"     = "1048576"       # 1 MB
-  }
-}
-
-resource "aws_msk_topic" "fraud_signals" {
-  cluster_arn        = aws_msk_cluster.banking.arn
-  name               = "banking.fraud-signals"
-  partitions         = var.environment == "prod" ? 12 : 3
-  replication_factor = var.environment == "prod" ? 3  : 2
-  configs = {
-    "retention.ms"        = "2592000000"  # 30 days
-    "cleanup.policy"      = "compact"     # Compact: keep latest per key
-    "compression.type"    = "lz4"
-  }
-}
-
-resource "aws_msk_topic" "transactions_dlq" {
-  cluster_arn        = aws_msk_cluster.banking.arn
-  name               = "banking.transactions.dlq"
-  partitions         = 3
-  replication_factor = var.environment == "prod" ? 3 : 2
-  configs = {
-    "retention.ms"   = "2592000000"  # 30 days — for investigation
-    "cleanup.policy" = "delete"
-  }
-}
+# resource "aws_msk_topic" "transactions" {
+#   cluster_arn = aws_msk_cluster.banking.arn
+#   name = "banking.transactions"
+#   partitions = var.environment == "prod" ? 24 : 6
+#   replication_factor = var.environment == "prod" ? 3 : 2
+#   configs = {
+#     "retention.ms" = "604800000" # 7 days
+#     "cleanup.policy" = "delete"
+#     "compression.type" = "lz4"
+#     "min.insync.replicas" = var.environment == "prod" ? "2" : "1"
+#     "message.max.bytes" = "1048576" # 1 MB
+#   }
+# }
+# resource "aws_msk_topic" "fraud_signals" {
+#   cluster_arn = aws_msk_cluster.banking.arn
+#   name = "banking.fraud-signals"
+#   partitions = var.environment == "prod" ? 12 : 3
+#   replication_factor = var.environment == "prod" ? 3 : 2
+#   configs = {
+#     "retention.ms" = "2592000000" # 30 days
+#     "cleanup.policy" = "compact" # Compact: keep latest per key
+#     "compression.type" = "lz4"
+#   }
+# }
+# resource "aws_msk_topic" "transactions_dlq" {
+#   cluster_arn = aws_msk_cluster.banking.arn
+#   name = "banking.transactions.dlq"
+#   partitions = 3
+#   replication_factor = var.environment == "prod" ? 3 : 2
+#   configs = {
+#     "retention.ms" = "2592000000" # 30 days — for investigation
+#     "cleanup.policy" = "delete"
+#   }
+# }
 
 # ── Security group ────────────────────────────────────────────────────────────
 
