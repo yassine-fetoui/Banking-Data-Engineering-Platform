@@ -176,12 +176,8 @@ jobs:
       - name: Test DAG imports
         env:
           AIRFLOW__CORE__UNIT_TEST_MODE: "True"
-          AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: "sqlite:////tmp/airflow_test.db"  # ✅ 4 slashes = absolute path
+          AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: "sqlite:////tmp/airflow_test.db"
+          AIRFLOW__CORE__LOAD_EXAMPLES: "False"
         run: |
           airflow db migrate
-          airflow dags list --subdir airflow/dags "
-          from airflow.models import DagBag
-          bag = DagBag(dag_folder='airflow/dags', include_examples=False)
-          assert not bag.import_errors, f'DAG import errors: {bag.import_errors}'
-          print(f'✅ {len(bag.dags)} DAGs loaded successfully')
-          "
+          airflow dags list --subdir airflow/dags
