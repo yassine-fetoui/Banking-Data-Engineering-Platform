@@ -6,14 +6,18 @@ Uses chispa for DataFrame equality assertions.
 """
 from __future__ import annotations
 
-import pytest
-from chispa import assert_df_equality
-from pyspark.sql import SparkSession
-from pyspark.sql import functions as F
-from pyspark.sql.types import DecimalType, StringType, StructField, StructType, TimestampType
 from decimal import Decimal
 
-from spark.utils.data_quality import DataQualityChecker, DataQualityError, add_audit_columns, mask_pii
+import pytest
+from pyspark.sql import SparkSession
+from pyspark.sql.types import DecimalType, StringType, StructField, StructType
+
+from spark.utils.data_quality import (
+    DataQualityChecker,
+    DataQualityError,
+    add_audit_columns,
+    mask_pii,
+)
 
 
 @pytest.fixture(scope="session")
@@ -29,11 +33,11 @@ def spark() -> SparkSession:
 
 @pytest.fixture
 def sample_transactions(spark):
-   data = [
-    ("txn_001", "acc_1", "cust_1", Decimal("1500.00"), "USD", "DEBIT",    "COMPLETED"),
-    ("txn_002", "acc_2", "cust_2", Decimal("5000.00"), "AED", "CREDIT",   "COMPLETED"),
-    ("txn_003", "acc_3", "cust_3", Decimal("250.50"),  "EUR", "TRANSFER", "PENDING"),
-]
+    data = [
+        ("txn_001", "acc_1", "cust_1", Decimal("1500.00"), "USD", "DEBIT",    "COMPLETED"),
+        ("txn_002", "acc_2", "cust_2", Decimal("5000.00"), "AED", "CREDIT",   "COMPLETED"),
+        ("txn_003", "acc_3", "cust_3", Decimal("250.50"),  "EUR", "TRANSFER", "PENDING"),
+    ]
     schema = StructType([
         StructField("transaction_id",   StringType(),       False),
         StructField("account_id",       StringType(),       False),
@@ -67,7 +71,7 @@ class TestDataQualityChecker:
         checker.unique(["transaction_id"]).run()
 
     def test_unique_fails_on_duplicates(self, spark):
-        data = [("txn_001", 100.0), ("txn_001", 200.0)]  # Duplicate transaction_id
+        data = [("txn_001", 100.0), ("txn_001", 200.0)]
         df = spark.createDataFrame(data, ["transaction_id", "amount"])
         checker = DataQualityChecker(df, "test.transactions")
         with pytest.raises(DataQualityError, match="UNIQUE"):
@@ -100,7 +104,6 @@ class TestDataQualityChecker:
         data = [(None, -999.0)]
         df = spark.createDataFrame(data, ["transaction_id", "amount"])
         checker = DataQualityChecker(df, "test.transactions", fail_fast=False)
-        # Does not raise — returns the DF
         result = checker.not_null(["transaction_id"]).between("amount", 0, 1000).run()
         assert result is not None
 
@@ -111,17 +114,15 @@ class TestAuditColumns:
 
     def test_add_audit_columns_adds_required_fields(self, sample_transactions):
         result = add_audit_columns(sample_transactions, "core_banking", "batch_123", "bronze")
-
-        assert "_source_system" in result.columns
-        assert "_batch_id"      in result.columns
-        assert "_layer"         in result.columns
-        assert "_ingested_at"   in result.columns
+        assert "_source_system"  in result.columns
+        assert "_batch_id"       in result.columns
+        assert "_layer"          in result.columns
+        assert "_ingested_at"    in result.columns
         assert "_ingestion_date" in result.columns
 
     def test_audit_column_values(self, sample_transactions, spark):
         result = add_audit_columns(sample_transactions, "core_banking", "batch_123", "bronze")
         row = result.select("_source_system", "_batch_id", "_layer").first()
-
         assert row["_source_system"] == "core_banking"
         assert row["_batch_id"]      == "batch_123"
         assert row["_layer"]         == "bronze"
@@ -136,13 +137,10 @@ class TestPIIMasking:
         df = spark.createDataFrame(data, ["transaction_id", "card_number"])
         masked = mask_pii(df, ["card_number"])
         row = masked.first()
-
-        # SHA-256 produces 64-char hex string
         assert len(row["card_number"]) == 64
         assert row["card_number"] != "1234-5678-9012-3456"
 
     def test_mask_pii_is_deterministic(self, spark):
-        """Same input → same hash (deterministic tokenisation)."""
         data = [("txn_001", "4111111111111111"), ("txn_002", "4111111111111111")]
         df = spark.createDataFrame(data, ["transaction_id", "card_number"])
         masked = mask_pii(df, ["card_number"])
