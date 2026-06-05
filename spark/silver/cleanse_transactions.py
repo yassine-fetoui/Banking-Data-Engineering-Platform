@@ -20,6 +20,7 @@ import structlog
 from delta import DeltaTable
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
+from pyspark.sql.window import Window 
 
 from spark.utils.data_quality import DataQualityChecker, add_audit_columns
 from spark.utils.spark_session import get_spark, get_s3_path
@@ -35,7 +36,7 @@ def deduplicate(df: DataFrame) -> DataFrame:
         df.withColumn(
             "_rn",
             F.row_number().over(
-                F.Window.partitionBy("transaction_id").orderBy(F.col("_ingested_at").desc())
+                Window.partitionBy("transaction_id").orderBy(F.col("_ingested_at").desc())
             ),
         )
         .filter(F.col("_rn") == 1)
