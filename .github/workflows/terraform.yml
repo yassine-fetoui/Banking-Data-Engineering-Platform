@@ -42,11 +42,12 @@ jobs:
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
-        continue-on-error: true
+        
 
         with:
           role-to-assume: ${{ secrets.AWS_TERRAFORM_ROLE_ARN }}
           aws-region: eu-west-1
+          continue-on-error: true
 
       - name: Terraform Init
         run: terraform init
