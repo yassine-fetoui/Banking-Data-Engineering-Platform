@@ -6,6 +6,7 @@ Unit tests for AML behavioural risk feature computation.
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from pyspark.sql.types import DoubleType
 
 import pytest
 from pyspark.sql import SparkSession
@@ -13,7 +14,7 @@ from pyspark.sql import functions as F
 from pyspark.sql.types import (
     DecimalType, StringType, StructField, StructType, TimestampType
 )
-
+from decimal import Decimal
 from spark.gold.aml_risk_scores import (
     compute_round_amount_score,
     compute_structuring_indicator,
@@ -36,7 +37,8 @@ TXN_SCHEMA = StructType([
     StructField("transaction_id",       StringType(),       False),
     StructField("customer_id",          StringType(),       False),
     StructField("transaction_datetime", TimestampType(),     False),
-    StructField("amount",               DecimalType(18, 4), False),
+    StructField("amount", DoubleType(), False),
+
     StructField("currency",             StringType(),       False),
     StructField("country_code",         StringType(),       True),
     StructField("status",               StringType(),       False),
@@ -56,11 +58,11 @@ def make_txn(spark, customer_id, amount, status="COMPLETED", country="AE",
 class TestRoundAmountScore:
 
     def test_round_amounts_detected(self, spark):
-        txns = [
-            ("txn_1", "cust_1", datetime.utcnow(), 1000.0, "AED", "AE", "COMPLETED", "DEBIT"),
-            ("txn_2", "cust_1", datetime.utcnow(), 2000.0, "AED", "AE", "COMPLETED", "DEBIT"),
-            ("txn_3", "cust_1", datetime.utcnow(),  750.5, "AED", "AE", "COMPLETED", "DEBIT"),
-        ]
+       txns = [
+    ("txn_1", "cust_1", datetime.utcnow(), Decimal("1000.0"), "AED", "AE", "COMPLETED", "DEBIT"),
+    ("txn_2", "cust_1", datetime.utcnow(), Decimal("2000.0"), "AED", "AE", "COMPLETED", "DEBIT"),
+    ("txn_3", "cust_1", datetime.utcnow(), Decimal("750.5"),  "AED", "AE", "COMPLETED", "DEBIT"),
+]
         df = spark.createDataFrame(txns, TXN_SCHEMA)
         result = compute_round_amount_score(df)
         row = result.filter(F.col("customer_id") == "cust_1").first()
