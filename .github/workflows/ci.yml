@@ -178,8 +178,8 @@ jobs:
           AIRFLOW__CORE__UNIT_TEST_MODE: "True"
           AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: "sqlite:////tmp/airflow_test.db"  # ✅ 4 slashes = absolute path
         run: |
-          airflow db init
-          python -c "
+          airflow db migrate
+          airflow dags list --subdir airflow/dags "
           from airflow.models import DagBag
           bag = DagBag(dag_folder='airflow/dags', include_examples=False)
           assert not bag.import_errors, f'DAG import errors: {bag.import_errors}'
