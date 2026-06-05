@@ -5,7 +5,7 @@ description = "Production-grade banking data engineering platform — PySpark, K
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
-authors = [{ name = "Mohd Sohail Khan", email = "sohaildani@github.com" }]
+authors = [{ name = "yassine Fetoui", email = "yfetoui123@gmail.com" }]
 
 dependencies = [
     # Spark + Delta Lake
