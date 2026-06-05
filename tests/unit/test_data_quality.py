@@ -99,18 +99,18 @@ class TestDataQualityChecker:
         with pytest.raises(DataQualityError, match="BETWEEN:amount"):
             checker.between("amount", 0.01, 10_000_000).run()
 
-def test_no_fail_fast_collects_all_errors(self, spark):
-    """With fail_fast=False, all failing checks are collected before raising."""
-    from pyspark.sql.types import DoubleType, StringType, StructField, StructType
-    schema = StructType([
-        StructField("transaction_id", StringType(), True),
-        StructField("amount",         DoubleType(), True),
-    ])
-    data = [(None, -999.0)]
-    df = spark.createDataFrame(data, schema)
-    checker = DataQualityChecker(df, "test.transactions", fail_fast=False)
-    result = checker.not_null(["transaction_id"]).between("amount", 0, 1000).run()
-    assert result is not None
+    def test_no_fail_fast_collects_all_errors(self, spark):
+        """With fail_fast=False, all failing checks are collected before raising."""
+        from pyspark.sql.types import DoubleType, StringType, StructField, StructType
+        schema = StructType([
+            StructField("transaction_id", StringType(), True),
+            StructField("amount",         DoubleType(), True),
+        ])
+        data = [(None, -999.0)]
+        df = spark.createDataFrame(data, schema)
+        checker = DataQualityChecker(df, "test.transactions", fail_fast=False)
+        result = checker.not_null(["transaction_id"]).between("amount", 0, 1000).run()
+        assert result is not None
 
 
 # ── Audit columns ─────────────────────────────────────────────────────────────
