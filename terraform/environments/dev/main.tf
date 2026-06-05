@@ -54,13 +54,14 @@ module "redshift" {
   data_lake_kms_arn  = module.s3.data_lake_kms_arn
 }
 
-module "iam" {
-  source            = "../../modules/iam"
-  environment       = "dev"
-  data_lake_bucket  = module.s3.data_lake_bucket
-  msk_cluster_arn   = module.kafka.cluster_arn
-  kms_key_arn       = module.s3.data_lake_kms_arn
-}
+# module "iam" {
+# source            = "../../modules/iam"
+# environment       = "dev"
+#  data_lake_bucket  = module.s3.data_lake_bucket
+ # msk_cluster_arn   = module.kafka.cluster_arn
+ # kms_key_arn       = module.s3.data_lake_kms_arn
+#}
+
 
 variable "aws_region"               { default = "eu-west-1" }
 variable "vpc_id"                   {}
